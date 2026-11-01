@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <PackageId>Lucida.AspNetCore</PackageId>
+    <Version>0.1.0</Version>
+    <Description>ASP.NET Core integration for the Lucida server SDK: DI, appsettings binding, request-context middleware, flush on shutdown</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/lucidaanalytics/lucida-dotnet</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/lucidaanalytics/lucida-dotnet</PackageProjectUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <InternalsVisibleTo Include="Lucida.AspNetCore.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lucida/Lucida.csproj" />
+  </ItemGroup>
+</Project>
