@@ -14,6 +14,9 @@
     <PackageReference Include="OpenFeature" Version="2.14.1" />
   </ItemGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Lucida.OpenFeature.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Lucida/Lucida.csproj" />
   </ItemGroup>
 </Project>

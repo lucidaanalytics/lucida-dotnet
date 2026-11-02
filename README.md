@@ -33,6 +33,9 @@ Definitions use `ETag` / `If-None-Match`; a `304` keeps the current set. `Reload
 Local evaluation first; flags it cannot decide (unknown key, cohorts, nothing loaded yet) go to `POST /v1/flags` unless `OnlyEvaluateLocally`.
 
 - `GetFlagResultAsync(key, ctx)` value + payload + reason (`"remote"` for server answers)
+- `GetFeatureFlagDetailsAsync(key, ctx)` (same read as `GetFlagResultAsync`): `Value`, `Payload`, `Variant`, raw `Reason` (the gateway's, `"remote"` if it sent none, `"fallback"`), `ConditionIndex`, `RequestId`, `EvaluatedLocally`
+- `LucidaOptions.Fallbacks` (`{flagKey: value}`): served with reason `"fallback"` when a flag cannot be evaluated (network error, nothing loaded, quota limited, unknown key); no exposure is sent for it
+- `FlagsChanged` / `FlagsStale` events: definitions reloaded with a change / a reload failed
 - `GetFeatureFlagAsync`, `GetFeatureFlagPayloadAsync`, `GetAllFlagsAsync`, `GetAllFlagsAndPayloadsAsync`, `GetAllFlagResultsAsync`
 - `Evaluate`, `IsEnabled`: local only
 

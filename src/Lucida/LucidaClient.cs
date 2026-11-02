@@ -48,6 +48,11 @@ public sealed class LucidaOptions
     public List<string>? AppContexts { get; init; }
     /// <summary>Shares one definitions fetch between workers; see <see cref="IFlagDefinitionCacheProvider"/>.</summary>
     public IFlagDefinitionCacheProvider? FlagDefinitionCache { get; init; }
+    /// <summary>
+    /// <c>{flagKey: value}</c> (<c>bool</c> or variant <c>string</c>) served with reason <c>"fallback"</c> when a flag cannot be evaluated
+    /// (network error, nothing loaded, quota limited, unknown key). Fallback reads send no exposure.
+    /// </summary>
+    public IReadOnlyDictionary<string, object>? Fallbacks { get; init; }
 }
 
 /// <summary>One historical event for <see cref="LucidaClient.ImportEventsAsync"/>. <c>DistinctId</c> and <c>Event</c> are required.</summary>

@@ -8,7 +8,16 @@ using System.Text.RegularExpressions;
 namespace Lucida;
 
 /// <summary>Outcome of evaluating one flag. <see cref="Value"/> is a <c>bool</c> or the variant key (<c>string</c>).</summary>
-public sealed record FlagResult(object Value, string Reason, int ConditionIndex = -1, string? Variant = null, JsonElement? Payload = null);
+/// <summary>
+/// Outcome of evaluating one flag. <c>Reason</c> is the raw Lucida reason (<c>"fallback"</c> for a <see cref="LucidaOptions.Fallbacks"/> value,
+/// <c>"remote"</c> when the server sent none); <c>RequestId</c> is set for server answers.
+/// </summary>
+public sealed record FlagResult(object Value, string Reason, int ConditionIndex = -1, string? Variant = null, JsonElement? Payload = null,
+    string? RequestId = null, bool EvaluatedLocally = true)
+{
+    public const string FallbackReason = "fallback";
+    public bool IsFallback => Reason == FallbackReason;
+}
 
 /// <summary>Local flag evaluator; behaviour pinned by testdata/flags vectors (see testdata/flags/README.md).</summary>
 public static class Evaluator

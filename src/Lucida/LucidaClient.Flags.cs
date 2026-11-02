@@ -60,9 +60,33 @@ public sealed partial class LucidaClient
     {
         var r = Evaluate(flagKey, context);
         if (r is not null && r.Reason != Evaluator.RequiresServer) return r;
-        if (onlyEvaluateLocally ?? _o.OnlyEvaluateLocally) return null;
-        return (await _sync.RemoteAsync(WithDefaults(context), [flagKey]).ConfigureAwait(false)).GetValueOrDefault(flagKey);
+        if (!(onlyEvaluateLocally ?? _o.OnlyEvaluateLocally))
+            r = (await _sync.RemoteAsync(WithDefaults(context), [flagKey]).ConfigureAwait(false)).GetValueOrDefault(flagKey);
+        else r = null;
+        if (r is null && _o.Fallbacks is { } fb && fb.TryGetValue(flagKey, out var v))
+            return new FlagResult(v, FlagResult.FallbackReason, -1, v as string);
+        return r;
     }
+
+    /// <summary>Value, payload, variant, raw reason, condition index, request id and local flag of one read (same as <see cref="GetFlagResultAsync"/>).</summary>
+    public Task<FlagResult?> GetFeatureFlagDetailsAsync(string flagKey, FlagContext context) => GetFlagResultAsync(flagKey, context);
+
+    /// <summary>Raised after definitions are (re)loaded with a change (first load included).</summary>
+    public event Action? FlagsChanged
+    {
+        add => _sync.Changed += value;
+        remove => _sync.Changed -= value;
+    }
+
+    /// <summary>Raised when a definitions reload fails.</summary>
+    public event Action? FlagsStale
+    {
+        add => _sync.Stale += value;
+        remove => _sync.Stale -= value;
+    }
+
+    /// <summary>Waits for the first definitions fetch; true when loaded or nothing is polled.</summary>
+    public Task<bool> AwaitFlagsAsync(TimeSpan max) => _sync.AwaitAsync(max);
 
     /// <summary><c>bool</c>, a variant key, or null when unknown / undecidable.</summary>
     public async Task<object?> GetFeatureFlagAsync(string flagKey, FlagContext context) =>
@@ -71,6 +95,10 @@ public sealed partial class LucidaClient
     /// <summary>The flag's JSON payload for its resolved variant, or null.</summary>
     public async Task<System.Text.Json.JsonElement?> GetFeatureFlagPayloadAsync(string flagKey, FlagContext context) =>
         (await GetFlagResultAsync(flagKey, context).ConfigureAwait(false))?.Payload;
+
+    /// <summary>The AI Config variation (completion or agent mode) served for <paramref name="context"/>, or <paramref name="fallback"/> (P-M49).</summary>
+    public async Task<AiConfig> GetAiConfigAsync(string flagKey, FlagContext context, AiConfig fallback, IReadOnlyDictionary<string, string>? vars = null) =>
+        AiConfig.From(await GetFlagResultAsync(flagKey, context).ConfigureAwait(false), fallback, vars);
 
     /// <summary>Every flag decided locally, plus (unless local-only) whatever the server decides for the rest.</summary>
     public async Task<Dictionary<string, FlagResult>> GetAllFlagResultsAsync(FlagContext context)

@@ -15,6 +15,31 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
     private Timer? _poller;
     private int _reloading;
     private string? _etag;
+    private readonly TaskCompletionSource _firstAttempt = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Raised after definitions are (re)loaded with a change (first load included).</summary>
+    public event Action? Changed;
+
+    /// <summary>Raised when a definitions reload fails.</summary>
+    public event Action? Stale;
+
+    private static void Fire(Action? hooks)
+    {
+        if (hooks is null) return;
+        foreach (var h in hooks.GetInvocationList())
+        {
+            try { ((Action)h)(); }
+            catch (Exception) { /* a listener never breaks the reload loop */ }
+        }
+    }
+
+    /// <summary>Waits for the first fetch attempt; true when definitions are loaded (or nothing is polled).</summary>
+    public async Task<bool> AwaitAsync(TimeSpan max)
+    {
+        if (http is null || secretKey is null || _poller is null) return true;
+        await Task.WhenAny(_firstAttempt.Task, Task.Delay(max)).ConfigureAwait(false);
+        return Loaded;
+    }
 
     /// <summary>Shares one definitions fetch between workers; see <see cref="IFlagDefinitionCacheProvider"/>.</summary>
     public IFlagDefinitionCacheProvider? Cache { get; set; }
@@ -39,10 +64,19 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
     public async Task<bool> ReloadAsync()
     {
         if (http is null || secretKey is null) return false;
+        var ok = await FetchAsync().ConfigureAwait(false);
+        _firstAttempt.TrySetResult();
+        if (!ok) Fire(Stale);
+        return ok;
+    }
+
+    private async Task<bool> FetchAsync()
+    {
         if (Adopt() is { } cached)
         {
             Definitions = cached;
             Loaded = true;
+            Fire(Changed);
             return true;
         }
         using var req = new HttpRequestMessage(HttpMethod.Get, _host + "/v1/flags/definitions");
@@ -61,6 +95,7 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
             Set(await res.Content.ReadAsStringAsync().ConfigureAwait(false));
             _etag = res.Headers.ETag?.ToString();
             Publish();
+            Fire(Changed);
             log.Debug($"flag definitions loaded ({Definitions.Count})");
             return true;
         }
@@ -160,8 +195,9 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
                 return out_;
             }
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync().ConfigureAwait(false));
+            var rid = doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("request_id", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null;
             if (doc.RootElement.ValueKind == JsonValueKind.Object && doc.RootElement.TryGetProperty("flags", out var flags) && flags.ValueKind == JsonValueKind.Object)
-                foreach (var f in flags.EnumerateObject()) out_[f.Name] = ParseRemote(f.Value);
+                foreach (var f in flags.EnumerateObject()) out_[f.Name] = ParseRemote(f.Value, rid);
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException)
         {
@@ -170,7 +206,7 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
         return out_;
     }
 
-    internal static FlagResult ParseRemote(JsonElement f)
+    internal static FlagResult ParseRemote(JsonElement f, string? requestId = null)
     {
         string? variant = f.TryGetProperty("variant", out var vt) && vt.ValueKind == JsonValueKind.String ? vt.GetString() : null;
         object value;
@@ -179,7 +215,9 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
         else if (variant is not null) value = variant;
         else value = f.TryGetProperty("enabled", out var en) && en.ValueKind == JsonValueKind.True;
         JsonElement? payload = f.TryGetProperty("payload", out var p) && p.ValueKind != JsonValueKind.Null ? p.Clone() : null;
-        return new FlagResult(value, "remote", -1, value as string ?? variant, payload);
+        var reason = f.TryGetProperty("reason", out var rs) && rs.ValueKind == JsonValueKind.String && rs.GetString() is { Length: > 0 } rr ? rr : "remote";
+        var idx = f.TryGetProperty("condition_index", out var ci) && ci.ValueKind == JsonValueKind.Number ? ci.GetInt32() : -1;
+        return new FlagResult(value, reason, idx, value as string ?? variant, payload, requestId, false);
     }
 
     public void Dispose()
