@@ -72,6 +72,7 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
 
     private async Task<bool> FetchAsync()
     {
+        if (http is not { } client) return false; // ReloadAsync checks too, but the compiler cannot see across methods
         if (Adopt() is { } cached)
         {
             Definitions = cached;
@@ -85,7 +86,7 @@ internal sealed class FlagSync(HttpClient? http, string host, string apiKey, str
         try
         {
             using var cts = new CancellationTokenSource(timeout);
-            using var res = await http.SendAsync(req, cts.Token).ConfigureAwait(false);
+            using var res = await client.SendAsync(req, cts.Token).ConfigureAwait(false);
             if (res.StatusCode == System.Net.HttpStatusCode.NotModified) return true;
             if (!res.IsSuccessStatusCode)
             {

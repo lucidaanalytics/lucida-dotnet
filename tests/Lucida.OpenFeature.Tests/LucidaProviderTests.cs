@@ -104,6 +104,8 @@ public class LucidaProviderTests : IAsyncLifetime
 
     private static string FindReasons()
     {
+        var env = Environment.GetEnvironmentVariable("LUCIDA_TESTDATA");
+        if (!string.IsNullOrEmpty(env)) return Path.Combine(env, "openfeature", "reasons.json");
         for (var d = new DirectoryInfo(AppContext.BaseDirectory); d is not null; d = d.Parent)
         {
             var f = Path.Combine(d.FullName, "testdata", "openfeature", "reasons.json");
