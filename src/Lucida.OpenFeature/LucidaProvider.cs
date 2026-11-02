@@ -39,8 +39,19 @@ public sealed class LucidaProvider : FeatureProvider
         Volatile.Write(ref _state, 1);
     }
 
-    private void Emit(ProviderEventTypes type, string message) =>
-        EventChannel.Writer.TryWrite(new ProviderEventPayload { Type = type, ProviderName = "lucida", Message = message });
+    // The SDK's event channel holds one item: an event raised while the previous one is unread queues behind it
+    // instead of being dropped (TryWrite alone lost a Stale that followed a ConfigurationChanged).
+    private void Emit(ProviderEventTypes type, string message)
+    {
+        var e = new ProviderEventPayload { Type = type, ProviderName = "lucida", Message = message };
+        if (!EventChannel.Writer.TryWrite(e)) _ = QueueAsync(e);
+    }
+
+    private async Task QueueAsync(ProviderEventPayload e)
+    {
+        try { await EventChannel.Writer.WriteAsync(e).ConfigureAwait(false); }
+        catch (ChannelClosedException) { /* provider shut down; nobody is listening */ }
+    }
 
     internal void Changed()
     {
