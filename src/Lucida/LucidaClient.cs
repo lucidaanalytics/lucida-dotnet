@@ -10,7 +10,7 @@ namespace Lucida;
 
 public sealed class LucidaOptions
 {
-    public string Host { get; init; } = "https://app.lucida.dev";
+    public string Host { get; init; } = "https://capture.lucidace.com";
     public int FlushAt { get; init; } = 20;
     public TimeSpan FlushInterval { get; init; } = TimeSpan.FromSeconds(5);
     public int MaxQueueSize { get; init; } = 1000;

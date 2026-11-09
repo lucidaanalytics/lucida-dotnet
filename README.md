@@ -3,6 +3,19 @@
 Server SDK (`Lucida`, net8.0). Delivery is at-least-once: a retried event keeps its `uuid`, the server dedupes.
 Packages: `Lucida` (core), `Lucida.AspNetCore` (DI, middleware), `Lucida.OpenFeature`.
 
+## Install
+
+From GitHub, [lucidaanalytics/lucida-dotnet](https://github.com/lucidaanalytics/lucida-dotnet), release `v0.1.0`:
+
+```sh
+# download the .nupkg files attached to the release into ./lucida-nupkgs, then
+dotnet nuget add source "$PWD/lucida-nupkgs" -n lucida
+dotnet add package Lucida --version 0.1.0
+```
+
+With the GitHub CLI: `gh release download v0.1.0 -R lucidaanalytics/lucida-dotnet -p '*.nupkg' -D lucida-nupkgs`. `Lucida.AspNetCore` and `Lucida.OpenFeature` are attached too (`dotnet add package Lucida.AspNetCore --version 0.1.0`). The NuGet install (`dotnet add package Lucida`) is coming.
+
+
 ```csharp
 using var lc = new LucidaClient("lc_pk_...", new LucidaOptions { SecretKey = "lc_sk_...", FlagPollInterval = TimeSpan.FromSeconds(30) });
 lc.Capture("user-1", "purchase", new Dictionary<string, object?> { ["total"] = 42 });
@@ -64,7 +77,7 @@ app.UseLucida();                                      // after authentication
 ```
 
 ```json
-{ "Lucida": { "ApiKey": "lc_pk_...", "SecretKey": "lc_sk_...", "Host": "https://app.lucida.dev", "FlushAt": 50, "FlagPollInterval": "00:00:30", "TrustProxy": false } }
+{ "Lucida": { "ApiKey": "lc_pk_...", "SecretKey": "lc_sk_...", "Host": "https://capture.lucidace.com", "FlushAt": 50, "FlagPollInterval": "00:00:30", "TrustProxy": false } }
 ```
 
 Any `LucidaOptions` property binds from the section; code-only options (handler, `BeforeSend`, `OnError`) use `AddLucida(apiKey, options, trustProxy)`. The middleware sets distinct id (the authenticated `NameIdentifier`/`sub` claim, else the tracing header), session id, `$current_url`, `$request_method`, `$request_path`, `$user_agent` and `$ip` (first `X-Forwarded-For` entry only with `TrustProxy`). A hosted service flushes the queue when the host stops.
