@@ -63,7 +63,7 @@ public sealed record ImportEvent(string DistinctId, string Event, IReadOnlyDicti
 public sealed partial class LucidaClient : IDisposable
 {
     public const string Lib = "lucida-dotnet";
-    public const string Version = "0.1.0";
+    public const string Version = "0.1.1";
     private const int MinGzipBytes = 1024;
     private const int MaxBatch = 1000;
 
@@ -129,13 +129,17 @@ public sealed partial class LucidaClient : IDisposable
         if (_o.DisableGeoip) props["$geoip_disable"] = true;
         JsonObject? e = Wire(id, eventName, props, timestamp, uuid, set, setOnce);
         if (groups is { Count: > 0 }) e["$groups"] = JsonSerializer.SerializeToNode(groups);
-        if (_o.BeforeSend is { } hook)
-        {
-            try { e = hook((JsonObject)e.DeepClone()); }
-            catch (Exception ex) { _log.Error("BeforeSend threw; keeping the original event", ex); }
-            if (e is null) return;
-        }
+        e = ApplyBeforeSend(e);
+        if (e is null) return;
         Enqueue(e);
+    }
+
+    /// <summary>The event after the BeforeSend hook: null when it drops the event, the original when it throws.</summary>
+    private JsonObject? ApplyBeforeSend(JsonObject e)
+    {
+        if (_o.BeforeSend is not { } hook) return e;
+        try { return hook((JsonObject)e.DeepClone()); }
+        catch (Exception ex) { _log.Error("BeforeSend threw; keeping the original event", ex); return e; }
     }
 
     /// <summary>Capture with no distinct id and no person profile: a random UUID v4 id is generated.</summary>
@@ -169,13 +173,23 @@ public sealed partial class LucidaClient : IDisposable
     /// <summary>
     /// Historical import through <c>POST /v1/s2s/batch</c> with the secret key; timestamps are kept. Chunks of
     /// <see cref="LucidaOptions.MaxBatchSize"/>; returns the number accepted. In test mode the events land in <see cref="Captured"/>.
+    /// Default properties and BeforeSend apply (an event the hook drops is not sent); <paramref name="raw"/> sends the events as given.
     /// </summary>
     /// <exception cref="LucidaException">Without a secret key, or on the first rejected chunk.</exception>
-    public async Task<int> ImportEventsAsync(IEnumerable<ImportEvent> events)
+    public async Task<int> ImportEventsAsync(IEnumerable<ImportEvent> events, bool raw = false)
     {
         if (_o.SecretKey is null) throw new LucidaException("ImportEventsAsync requires SecretKey");
         if (_o.Disabled) return 0;
-        var wire = events.Select(ev => Wire(ev.DistinctId, ev.Event, Props(ev.Properties), ev.Timestamp, ev.Uuid, ev.Set, ev.SetOnce)).ToList();
+        var wire = new List<JsonObject>();
+        foreach (var ev in events)
+        {
+            var props = new JsonObject();
+            if (!raw) _identity.MergeSuper(props);
+            Merge(props, ev.Properties);
+            JsonObject? w = Wire(ev.DistinctId, ev.Event, props, ev.Timestamp, ev.Uuid, ev.Set, ev.SetOnce);
+            if (!raw) w = ApplyBeforeSend(w);
+            if (w is not null) wire.Add(w);
+        }
         if (IsTestMode)
         {
             lock (_captured) _captured.AddRange(wire);
@@ -206,8 +220,8 @@ public sealed partial class LucidaClient : IDisposable
     /// <summary>An identical call (same id and properties) already sent by this client is skipped.</summary>
     public void Identify(string distinctId, IReadOnlyDictionary<string, object?>? properties = null, IReadOnlyDictionary<string, object?>? propertiesSetOnce = null)
     {
-        if (_identity.First("identify", distinctId, properties, propertiesSetOnce))
-            Capture(distinctId, "$identify", set: properties, setOnce: propertiesSetOnce);
+        if (_identity.Claim("identify", distinctId, properties, propertiesSetOnce) is { } uuid)
+            Capture(distinctId, "$identify", uuid: uuid, set: properties, setOnce: propertiesSetOnce);
     }
 
     public void Alias(string distinctId, string alias) =>
@@ -215,13 +229,13 @@ public sealed partial class LucidaClient : IDisposable
 
     public void GroupIdentify(string groupType, string groupKey, IReadOnlyDictionary<string, object?>? properties = null, string? distinctId = null)
     {
-        if (!_identity.First("group", groupType, groupKey, distinctId, properties)) return;
+        if (_identity.Claim("group", groupType, groupKey, distinctId, properties) is not { } uuid) return;
         Capture(distinctId ?? $"${groupType}_{groupKey}", "$groupidentify", new Dictionary<string, object?>
         {
             ["$group_type"] = groupType,
             ["$group_key"] = groupKey,
             ["$group_set"] = properties ?? new Dictionary<string, object?>(),
-        });
+        }, uuid: uuid);
     }
 
     /// <summary>Like <see cref="Identify"/>, then delivers at once; true when the queue was sent.</summary>
@@ -256,6 +270,7 @@ public sealed partial class LucidaClient : IDisposable
         if (_queue.Count >= _o.MaxQueueSize)
         {
             Interlocked.Increment(ref _dropped);
+            _identity.Release([e]);
             return;
         }
         _queue.Enqueue(e);
@@ -277,6 +292,7 @@ public sealed partial class LucidaClient : IDisposable
                 if (!await SendWithRetryAsync(batch).ConfigureAwait(false))
                 {
                     Interlocked.Add(ref _dropped, batch.Count);
+                    _identity.Release(batch);
                     ok = false;
                 }
             }

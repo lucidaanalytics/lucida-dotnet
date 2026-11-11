@@ -26,8 +26,13 @@ internal sealed class IdentityState
         foreach (var kv in _super) into[kv.Key] = JsonSerializer.SerializeToNode(kv.Value);
     }
 
-    /// <summary>True the first time this exact call (kind, id, properties) is seen.</summary>
-    public bool First(params object?[] parts)
+    private readonly Dictionary<string, string> _keys = [];
+
+    /// <summary>
+    /// The uuid to send this identify/group event under the first time this exact call (kind, id, properties) is seen,
+    /// else null. <see cref="Release"/> frees the call again when the event is dropped.
+    /// </summary>
+    public string? Claim(params object?[] parts)
     {
         var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(parts))));
         lock (_order)
@@ -40,7 +45,25 @@ internal sealed class IdentityState
                 _seen.Remove(_order.First!.Value);
                 _order.RemoveFirst();
             }
-            return fresh;
+            if (!fresh) return null;
+            var uuid = LucidaClient.Uuid7();
+            if (_keys.Count >= DedupeSize) _keys.Remove(_keys.Keys.First());
+            _keys[uuid] = key;
+            return uuid;
+        }
+    }
+
+    /// <summary>Forgets the calls whose events were dropped (rejected batch, full queue) so repeating them is sent again.</summary>
+    public void Release(IEnumerable<JsonObject> events)
+    {
+        lock (_order)
+        {
+            foreach (var e in events)
+            {
+                if (e["uuid"]?.GetValue<string>() is not { } uuid || !_keys.Remove(uuid, out var key)) continue;
+                _seen.Remove(key);
+                _order.Remove(key);
+            }
         }
     }
 }

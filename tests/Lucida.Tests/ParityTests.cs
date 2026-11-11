@@ -169,6 +169,39 @@ public class ParityTests
     }
 
     [Fact]
+    public async Task IdentifyIsResentAfterItsBatchWasDropped()
+    {
+        var fake = new FakeHandler();
+        fake.Statuses.Enqueue(HttpStatusCode.BadRequest);
+        using var lc = new LucidaClient("k", new LucidaOptions { Handler = fake, FlushAt = 100, FlushInterval = TimeSpan.FromHours(1) });
+        lc.Identify("u", P("a", 1));
+        lc.GroupIdentify("org", "acme", P("n", 1));
+        Assert.False(await lc.FlushAsync());
+        lc.Identify("u", P("a", 1));
+        lc.GroupIdentify("org", "acme", P("n", 1));
+        Assert.True(await lc.FlushAsync());
+        Assert.Equal([2, 2], fake.Bodies.Select(b => b["batch"]!.AsArray().Count));
+    }
+
+    [Fact]
+    public async Task ImportEventsAppliesDefaultsAndBeforeSendUnlessRaw()
+    {
+        var fake = new FakeHandler();
+        using var lc = new LucidaClient("k", new LucidaOptions
+        {
+            Handler = fake, SecretKey = "lc_sk_x", FlushInterval = TimeSpan.FromHours(1),
+            DefaultProperties = P("env", "prod"),
+            BeforeSend = e => (string?)e["event"] == "drop" ? null : e,
+        });
+        Assert.Equal(1, await lc.ImportEventsAsync([new ImportEvent("u", "keep"), new ImportEvent("u", "drop")]));
+        Assert.Equal(1, await lc.ImportEventsAsync([new ImportEvent("u", "plain")], raw: true));
+        Assert.Equal("prod", (string?)fake.Bodies[0]["batch"]![0]!["properties"]!["env"]);
+        Assert.Null(fake.Bodies[1]["batch"]![0]!["properties"]!["env"]);
+    }
+
+    private static Dictionary<string, object?> P(string k, object? v) => new() { [k] = v };
+
+    [Fact]
     public async Task AsyncIdentifyAliasAndGroupIdentifyDeliverAtOnce()
     {
         var fake = new FakeHandler();
